@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { users } from "../models/user.js";
+import { users } from "../models/userModel.js";
 import { eq } from "drizzle-orm";
 
 export const searchUser = async (req, res, next) => {

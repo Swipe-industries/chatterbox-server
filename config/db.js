@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@neondatabase/serverless";
 
-dotenv.config({ path: "./.env" });
+dotenv.config();
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -11,7 +11,7 @@ let db;
 
 try {
     // Attempt to create a connection
-    client = postgres(connectionString, { prepare: false });
+    client = neon(connectionString);
 
     // Initialize Drizzle ORM
     db = drizzle(client);

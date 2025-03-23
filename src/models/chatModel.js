@@ -1,10 +1,26 @@
-import { pgTable, serial, integer, timestamp, } from "drizzle-orm/pg-core";
-import { users } from "./user.js";
+import { pgTable, timestamp, uuid, foreignKey, unique } from "drizzle-orm/pg-core";
+import { users } from "./userModel.js";
 
-export const chats = pgTable("chats", {
-  id: serial("id").primaryKey(),
-  user1Id: integer("user1_id").references(() => users.id).notNull(),  // First user in the chat
-  user2Id: integer("user2_id").references(() => users.id).notNull(),  // Second user in the chat
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+export const chats = pgTable(
+  "chats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user1Id: uuid("user1_id").notNull(), // First user in the chat
+    user2Id: uuid("user2_id").notNull(), // Second user in the chat
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueChat: unique().on(table.user1Id, table.user2Id), // Prevent duplicate chats
+    user1Fk: foreignKey({
+      columns: [table.user1Id],
+      foreignColumns: [users.id],
+      onDelete: "cascade",
+    }),
+    user2Fk: foreignKey({
+      columns: [table.user2Id],
+      foreignColumns: [users.id],
+      onDelete: "cascade",
+    }),
+  })
+);
