@@ -4,57 +4,66 @@ import jwt from "jsonwebtoken";
 import { db } from "../../config/db.js";
 import { users } from "../models/userModel.js";
 import { eq } from "drizzle-orm";
+import status from "http-status";
 
 dotenv.config();
 
 export const registerUser = async (req, res, next) => {
   try {
-    const data = req.body;
-    console.log(data);
-    
+    const userInfo = req.body;
+    if (!process.env.JWT_SECRET) {
+      throw new Error(
+        "JWT_SECRET is not defined in the environment variables."
+      );
+    }
 
-    // const user = await db
-    //   .select()
-    //   .from(users)
-    //   .where(eq(users.username, username))
-    //   .limit(1);
+    //prepare the data to be inserted into the database:
+    //1. encrypt the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(userInfo.password, salt);
 
-    // if (
-    //   name.length === 0 ||
-    //   username.length === 0 ||
-    //   password.length === 0 ||
-    //   gender.length === 0
-    // )
-    //   return res.status(400).json("All fields are required");
+    userInfo.password = hashedPassword;
 
-    // if (user.length !== 0)
-    //   return res.status(400).json("Username Already exists");
+    //2. insert into the db with returning
+    let response;
+    try {
+      response = await db.insert(users).values(userInfo).returning({
+        id: users.id,
+        name: users.name,
+        username: users.username,
+        gender: users.gender,
+        lastSeen: users.lastSeen,
+        updatedAt: users.updatedAt,
+        createdAt: users.createdAt,
+      });
+    } catch (dbError) {
+      if (dbError.code === "23505") { // Assuming PostgreSQL unique violation error code
+        return res.status(status.CONFLICT).json({
+          status: status.CONFLICT,
+          error: "User already exists",
+        });
+      }
+      throw dbError; // Re-throw other errors to be handled by the outer catch block
+    }
 
-    // const salt = await bcrypt.genSalt(10);
-    // const hashedPassword = await bcrypt.hash(password, salt);
+    //3. Generate JWT token and send to the client
+    const payload = { id: response[0].id, username: response[0].username };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRATION || "2h",
+    });
 
-    // const newUser = await db
-    //   .insert(users)
-    //   .values({
-    //     name,
-    //     username,
-    //     password: hashedPassword,
-    //     gender,
-    //   })
-    //   .returning();
-
-    // return res.status(201).json({
-    //   uid: newUser[0].id,
-    //   name: newUser[0].name,
-    //   username: newUser[0].username,
-    //   gender: newUser[0].gender,
-    //   createdAt: newUser[0].createdAt,
-    //   updatedAt: newUser[0].updatedAt,
-    //   isOnline: newUser[0].isOnline,
-    //   lastSeen: newUser[0].lastSeen,
-    // });
+    //4. Send response
+    res.status(status.CREATED).json({
+      status: status.CREATED,
+      messages: "New user created successfully",
+      data: { ...response[0] },
+      token: token,
+    });
   } catch (error) {
-    res.status(500).json(error);
+    console.error("Error in registerUser:", error);
+    res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json({ message: "An internal server error occurred." });
     next(error);
   }
 };
@@ -67,41 +76,44 @@ export const loginUser = async (req, res, next) => {
       .select()
       .from(users)
       .where(eq(users.username, username))
-      .limit(1);
-    console.log(user[0]);
 
     if (user.length === 0) {
-      throw new Error("Invalid credentials");
+      return res.status(status.UNAUTHORIZED).json({
+      status: status.UNAUTHORIZED,
+      error: "Invalid credentials",
+      });
     }
 
     const isMatch = await bcrypt.compare(password, user[0].password);
 
     if (!isMatch) {
-      throw new Error("Invalid credentials");
+      return res.status(status.UNAUTHORIZED).json({
+        status: status.UNAUTHORIZED,
+        error: "Invalid password",
+        });
     }
 
-    const payload = {
-      user: {
-        id: user[0].id,
-      },
-    };
-
+    const payload = { id: user[0].id, username: user[0].username };
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "5h",
+      expiresIn: process.env.JWT_EXPIRATION || "2h",
     });
 
-    return res.status(201).json({
+    //sanitizing the user :D                          
+    const sanitizedUser = (({ password, ...rest }) => rest)(user[0]);
+    //Note to myself: the above line of code is called IIFE (Immediately Invoked Function) here it is written in the form of an arrow function. 
+    //it takes an object as the input and then takes out password field from it and destructures rest of object into a new object and returns it. 
+
+    return res.status(status.OK).json({
+      status: status.OK,
+      messages: "User details",
+      data: sanitizedUser,
       token: token,
-      uid:user[0].id,
-      name: user[0].name,
-      username: user[0].username,
-      gender: user[0].gender,
-      createdAt: user[0].createdAt,
-      updatedAt: user[0].updatedAt,
-      isOnline: user[0].isOnline,
-      lastSeen: user[0].lastSeen,
     });
   } catch (error) {
-    return res.status(500).json("Invalid credentials");
+    console.error("Error in loginUser:", error);
+    res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json({ message: "An internal server error occurred." });
+    next(error);
   }
 };

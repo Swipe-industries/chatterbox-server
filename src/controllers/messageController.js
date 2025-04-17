@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 export const addMessage = async (req, res) => {
   try {
-    //saving the data in the table:
+    //saving the message in the table:
     const messaggeData = await db.insert(messages).values(req.body).returning();
 
     return res.status(200).json(messaggeData[0]);
