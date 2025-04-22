@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import {createServer} from "http";
+import { Server } from "socket.io";
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -34,58 +35,58 @@ app.use(errorHandler);
 const server = createServer(app);
 const PORT = process.env.PORT || 8080;
 
-// const io = new Server(server, {
-//   cors: {
-//     origin: process.env.CLIENT_URL || "http://localhost:3000",
-//     methods: ["GET", "POST"],
-//   },
-// });
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
 
-// let activeUsers = [];
+let activeUsers = [];
 
-// io.on("connection",(socket) => {
-//   //add a new user to socket server
-//   socket.on('add-new-user', (newUserId) => {
-//     if(!activeUsers.some((user) => user.userId === newUserId)){
-//       activeUsers.push({
-//         userId: newUserId,
-//         socketId: socket.id
-//       })
-//     }
-//     io.emit('get-users', activeUsers)
-//   })
+io.on("connection",(socket) => {
+  //add a new user to socket server
+  socket.on('add-new-user', (newUserId) => {
+    if(!activeUsers.some((user) => user.userId === newUserId)){
+      activeUsers.push({
+        userId: newUserId,
+        socketId: socket.id
+      })
+    }
+    socket.broadcast.emit('get-users', activeUsers)
+  })
 
-//   // Handle sending and receiving messages
-//   socket.on('send-message', (data) => {
-//     const { receiverId, message } = data;
-//     const user = activeUsers.find((user) => user.userId === receiverId);
-//     if (user) {
-      
-//       io.to(user.socketId).emit('receive-message', message);
-//     }
-//   });
+  // Handle sending and receiving messages
+  socket.on('send-message', (data) => {
+    const { receiverId, message } = data;
+    const user = activeUsers.find((user) => user.userId === receiverId);
+    if (user) {
+      io.to(user.socketId).emit('receive-message', message);
+    }
+  });
 
-//   socket.on('user-typing', ({ userId, receiverId }) => {
-//     const user = activeUsers.find(u => u.userId === userId);
-//     if (user) {
-//       user.isTyping = true;
-//       io.to(activeUsers.find(u => u.userId === receiverId)?.socketId).emit('user-typing', userId);
-//     }
-//   });
+  socket.on('user-typing', ({ userId, receiverId }) => {
+    const user = activeUsers.find(u => u.userId === userId);
+    if (user) {
+      user.isTyping = true;
+      io.to(activeUsers.find(u => u.userId === receiverId)?.socketId).emit('user-typing', userId);
+    }
+  });
 
-//   socket.on('user-stop-typing', ({ userId, receiverId }) => {
-//     const user = activeUsers.find(u => u.userId === userId);
-//     if (user) {
-//       user.isTyping = false;
-//       io.to(activeUsers.find(u => u.userId === receiverId)?.socketId).emit('user-stop-typing', userId);
-//     }
-//   });
+  socket.on('user-stop-typing', ({ userId, receiverId }) => {
+    const user = activeUsers.find(u => u.userId === userId);
+    if (user) {
+      user.isTyping = false;
+      io.to(activeUsers.find(u => u.userId === receiverId)?.socketId).emit('user-stop-typing', userId);
+    }
+  });
 
-//   socket.on("disconnect", () => {
-//     activeUsers = activeUsers.filter((user) => user.socketId !== socket.id)
-//     io.emit('get-users', activeUsers)
-//   });
-// });
+  socket.on("disconnect", () => {
+    activeUsers = activeUsers.filter((user) => user.socketId !== socket.id)
+    io.emit('get-users', activeUsers) 
+  });
+});
 
 server.listen(PORT, () => {
   console.log(`Server is running on port http://localhost:${PORT}`);
