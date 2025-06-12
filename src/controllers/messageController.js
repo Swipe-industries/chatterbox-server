@@ -1,6 +1,8 @@
 import { messages } from "../models/messageModel.js";
 import { db } from "../../config/db.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import status from "http-status";
+import { chats } from "../models/chatModel.js";
 
 export const addMessage = async (req, res) => {
   try {
@@ -16,9 +18,28 @@ export const addMessage = async (req, res) => {
 
 export const getMessage = async (req, res) => {
   const chatId = req.params.chatId;
+  const { limit = 20, before } = req.query;
 
-  // Validate that chatId are provided
-  if (!chatId) return res.status(400).json("chatId is required");
+  // const appendReceiverIds = async (messages) => {
+  //   for (const message of messages) {
+  //     const chat = await db
+  //       .select()
+  //       .from(chats)
+  //       .where(
+  //         eq(chats.id, message.chatId)
+  //       )
+  //       .limit(1);
+
+  //     if (chat.length > 0) {
+  //       const receiverId =
+  //         chat[0].user1Id === message.senderId
+  //           ? chat[0].user2Id
+  //           : chat[0].user1Id;
+  //       message.receiverId = receiverId;
+  //     }
+  //   }
+  //   return messages;
+  // };
 
   try {
     //retrieving all the messages based on chatId
@@ -27,7 +48,13 @@ export const getMessage = async (req, res) => {
       .from(messages)
       .where(eq(messages.chatId, chatId));
 
-    return res.status(200).json(allMessages);
+    // const data = await appendReceiverIds(allMessages);
+      
+    return res.status(status.OK).json({
+      status: status.OK,
+      message: "All messages fetched",
+      data: allMessages
+    });
   } catch (error) {
     console.log(error);
     return res.status(500).json(error);

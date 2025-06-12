@@ -55,7 +55,7 @@ export const registerUser = async (req, res, next) => {
     //4. Send response
     res.status(status.CREATED).json({
       status: status.CREATED,
-      messages: "New user created successfully",
+      message: "New user created successfully",
       data: { ...response[0] },
       token: token,
     });
@@ -105,7 +105,7 @@ export const loginUser = async (req, res, next) => {
 
     return res.status(status.OK).json({
       status: status.OK,
-      messages: "User details",
+      message: "User details",
       data: sanitizedUser,
       token: token,
     });
