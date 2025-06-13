@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { chats } from "../models/chatModel.js";
 import { db } from "../../config/db.js";
 import status from "http-status";
@@ -55,19 +55,19 @@ export const createChat = async (req, res) => {
 };
 
 export const userChats = async (req, res) => {
-  const getLastMessage = (messagesData) => {
-    if (!messagesData || messagesData.length === 0) {
-      return ""; // Return an empty string if no messages are available
-    }
-    return messagesData.reduce((latest, current) => {
-      return new Date(current.createdAt) > new Date(latest.createdAt)
-        ? current
-        : latest;
-    }, messagesData[0]);
-  };
+  // const getLastMessage = (messagesData) => {
+  //   if (!messagesData || messagesData.length === 0) {
+  //     return ""; // Return an empty string if no messages are available
+  //   }
+  //   return messagesData.reduce((latest, current) => {
+  //     return new Date(current.createdAt) > new Date(latest.createdAt)
+  //       ? current
+  //       : latest;
+  //   }, messagesData[0]);
+  // };
 
   try {
-    const loggedInUserId = req.params.userId;
+    const loggedInUserId = req.user.id;
 
     // Step 1: Fetch all the chats where the user is a participant
     const userChatsData = await db
@@ -81,54 +81,78 @@ export const userChats = async (req, res) => {
     if (!userChatsData || userChatsData.length === 0) {
       return res.status(status.NOT_FOUND).json({
         status: status.NOT_FOUND,
-        error: "No chats found for the given user",
+        message: "No chats found!",
       });
     }
 
-    // Step 2: Extract other participant IDs
-    const chatDetails = await Promise.all(
-      userChatsData.map(async (chat) => {
-        const participantId =
-          chat.user1Id === loggedInUserId ? chat.user2Id : chat.user1Id;
+    const chatIds = userChatsData.map((chat) => chat.id);
+    const receiverIds = userChatsData.map((chat) =>
+      chat.user1Id === loggedInUserId ? chat.user2Id : chat.user1Id
+    );
 
-        // Step 3: Get participant details
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.id, participantId))
-          .limit(1);
+    // Step 2: Fetch reveiver's details in one go
+    const reveivers = await db
+      .select()
+      .from(users)
+      .where(inArray(users.id, receiverIds));
 
-        // Step 4: Get latest message + unread count in one query
-        const messagesData = await db
+    const userMap = new Map(reveivers.map((user) => [user.id, user]));
+
+    // Step 3: Fetch latest messages per chat (1 per chat)
+    const latestMessages = await Promise.all(
+      chatIds.map(async (chatId) => {
+        const [latest] = await db
           .select({
             content: messages.content,
-            createdAt: messages.createdAt,
-            isRead: messages.isRead,
-            senderId: messages.senderId,
+            createdAt: messages.createdAt
           })
           .from(messages)
-          .where(eq(messages.chatId, chat.id))
-          .orderBy(messages.createdAt, "desc");
-
-        const lastMessageData = getLastMessage(messagesData);
-        const lastMessage = messagesData.length > 0 ? lastMessageData.content : "";
-        const unreadCount = messagesData.filter(
-          (message) => !message.isRead
-        ).length;
-
-        return {
-          chatId: chat.id,
-          id: user?.id || null,
-          name: user?.name || "Unknown",
-          gender: user?.gender || "Unknown",
-          lastMessage,
-          updatedAt: lastMessageData.createdAt,
-          unreadCount,
-        };
+          .where(eq(messages.chatId, chatId))
+          .orderBy(messages.createdAt, "desc")
+          .limit(1);
+        return { ...latest, chatId };
       })
     );
 
-    // Return the retrieved chats
+    const latestMessageMap = new Map(
+      latestMessages.map((msg) => [msg.chatId, msg])
+    );
+
+    // Step 4: Fetch unread message counts per chat
+    const unreadCounts = await Promise.all(
+      chatIds.map(async (chatId) => {
+        const result = await db.execute(
+          sql`SELECT COUNT(*)::int AS count FROM ${messages} WHERE ${messages.chatId} = ${chatId} AND ${messages.isRead} = false`
+        );
+        const count = result.rows?.[0]?.count || 0;
+        return { chatId, count };
+      })
+    );
+
+    const unreadCountMap = new Map(
+      unreadCounts.map((entry) => [entry.chatId, entry.count])
+    );
+
+    // Step 5: Build final chat list
+    const chatDetails = userChatsData.map((chat) => {
+      const participantId =
+        chat.user1Id === loggedInUserId ? chat.user2Id : chat.user1Id;
+
+      const user = userMap.get(participantId);
+      const lastMessage = latestMessageMap.get(chat.id);
+      const unreadCount = unreadCountMap.get(chat.id) || 0;
+
+      return {
+        chatId: chat.id,
+        userId: user?.id || null,
+        name: user?.name || "Unknown",
+        gender: user?.gender || "Unknown",
+        lastMessage: lastMessage?.content || "",
+        lastSeen: lastMessage?.createdAt || chat.createdAt,
+        unreadCount,
+      };
+    });
+
     return res.status(status.OK).json({
       status: status.OK,
       message: "Chats retrieved successfully",

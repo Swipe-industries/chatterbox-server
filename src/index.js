@@ -25,10 +25,10 @@ app.use(morgan(":method   :url    :status     :response-time ms")); //comment it
 app.get("/", (_, res) => {
   res.send({ message: "hello from home route" });
 });
-app.use("/auth", authRoutes);
-app.use("/users", userRoutes);
-app.use("/chats", chatRoutes);
-app.use("/messages", messageRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/chats", chatRoutes);
+app.use("/api/messages", messageRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
