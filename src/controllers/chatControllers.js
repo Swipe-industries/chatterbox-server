@@ -55,17 +55,6 @@ export const createChat = async (req, res) => {
 };
 
 export const userChats = async (req, res) => {
-  // const getLastMessage = (messagesData) => {
-  //   if (!messagesData || messagesData.length === 0) {
-  //     return ""; // Return an empty string if no messages are available
-  //   }
-  //   return messagesData.reduce((latest, current) => {
-  //     return new Date(current.createdAt) > new Date(latest.createdAt)
-  //       ? current
-  //       : latest;
-  //   }, messagesData[0]);
-  // };
-
   try {
     const loggedInUserId = req.user.id;
 
@@ -103,8 +92,7 @@ export const userChats = async (req, res) => {
       chatIds.map(async (chatId) => {
         const [latest] = await db
           .select({
-            content: messages.content,
-            createdAt: messages.createdAt
+            content: messages.content
           })
           .from(messages)
           .where(eq(messages.chatId, chatId))
@@ -148,7 +136,7 @@ export const userChats = async (req, res) => {
         name: user?.name || "Unknown",
         gender: user?.gender || "Unknown",
         lastMessage: lastMessage?.content || "",
-        lastSeen: lastMessage?.createdAt || chat.createdAt,
+        updatedAt: lastMessage?.createdAt || chat.createdAt,
         unreadCount,
       };
     });

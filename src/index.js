@@ -11,6 +11,10 @@ import chatRoutes from "./routes/chatRoutes.js";
 import { errorHandler } from "./middlewares/errors.js";
 import { parseJson } from "./middlewares/jsonParser.js";
 import { v4 as uuidv4 } from "uuid";
+import { db } from "../config/db.js";
+import { users } from "./models/userModel.js";
+import { eq } from "drizzle-orm";
+import { addMessage } from "./controllers/messageController.js";
 
 dotenv.config();
 
@@ -60,8 +64,7 @@ io.on("connection", (socket) => {
 
   // Handle sending and receiving messages
   socket.on("send-message", (data) => {
-    const { receiverId, chatId, senderId, message } = data;
-
+    const { receiverId, chatId, senderId, message, messageType } = data;
     const fullMessage = {
       id: uuidv4(),
       chatId,
@@ -73,6 +76,7 @@ io.on("connection", (socket) => {
     };
 
     //save to database here:
+    // addMessage();
 
     //emit message:
     const receiverSocket = activeUsers.find((u) => u.userId === receiverId);
@@ -109,9 +113,29 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
+    //Finding the disconnected user:
+    const disconnectedUser = activeUsers.find(
+      (user) => user.socketId === socket.id
+    );
+
+    //Removing the user from the list of active users:
     activeUsers = activeUsers.filter((user) => user.socketId !== socket.id);
+
+    // emitting to all:
     io.emit("get-users", activeUsers);
+
+    //Updating the database:
+    if (disconnectedUser) {
+      try {
+        await db
+          .update(users)
+          .set({ lastSeen: new Date() })
+          .where(eq(users.id, disconnectedUser.userId));
+      } catch (error) {
+        console.error("Error updating lastSeen: ", error);
+      }
+    }
   });
 });
 

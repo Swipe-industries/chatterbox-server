@@ -8,12 +8,10 @@ export const checkUsername = async (req, res, next) => {
     const { username } = req.query;
 
     if (!username) {
-      return res
-        .status(status.LENGTH_REQUIRED)
-        .json({
-          status: status.LENGTH_REQUIRED,
-          error: "Username is required",
-        });
+      return res.status(status.LENGTH_REQUIRED).json({
+        status: status.LENGTH_REQUIRED,
+        error: "Username is required",
+      });
     }
 
     const existingUser = await db
@@ -26,6 +24,26 @@ export const checkUsername = async (req, res, next) => {
   } catch (error) {
     console.error(error);
     next(error);
+  }
+};
+
+export const getLastSeen = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const [user] = await db
+      .select({ lastSeen: users.lastSeen })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.status(200).json({ lastSeen: user.lastSeen });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
@@ -63,10 +81,8 @@ export const searchUser = async (req, res) => {
 };
 
 export const getAllUsers = async (req, res) => {
-  try{
-    const usersList = await db
-      .select()
-      .from(users);
+  try {
+    const usersList = await db.select().from(users);
 
     if (usersList.length > 0) {
       const sanitizedUsers = usersList.map(({ password, ...user }) => user);
@@ -78,13 +94,13 @@ export const getAllUsers = async (req, res) => {
     }
 
     return res.status(status.NOT_FOUND).json({ error: "No users found" });
-  }catch (error) {
+  } catch (error) {
     console.error("Error in getAllUsers:", error);
     return res
       .status(status.INTERNAL_SERVER_ERROR)
       .json({ error: "An error occurred while fetching users" });
   }
-}
+};
 
 export const getUser = async (req, res) => {
   try {
