@@ -5,8 +5,8 @@ import { authMiddleware } from "../middlewares/auth.js";
 
 const router = express.Router();
 
-router.post('/add', addMessage);
-router.get('/:chatId',authMiddleware, getMessage);
+router.post('/messages/add', addMessage);
+router.get('/messages/:chatId',authMiddleware, getMessage);
 
 
 export default router;

@@ -1,4 +1,4 @@
-import { db } from "../../config/db.js";
+import { db } from "../config/db.js";
 import { users } from "../models/userModel.js";
 import { eq } from "drizzle-orm";
 import status from "http-status";

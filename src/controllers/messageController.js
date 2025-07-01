@@ -1,5 +1,5 @@
 import { messages } from "../models/messageModel.js";
-import { db } from "../../config/db.js";
+import { db } from "../config/db.js";
 import { eq, asc } from "drizzle-orm";
 import status from "http-status";
 

@@ -1,6 +1,6 @@
 import { inArray, sql } from "drizzle-orm";
 import { chats } from "../models/chatModel.js";
-import { db } from "../../config/db.js";
+import { db } from "../config/db.js";
 import status from "http-status";
 import { users } from "../models/userModel.js";
 import { messages } from "../models/messageModel.js";
@@ -92,7 +92,7 @@ export const userChats = async (req, res) => {
       chatIds.map(async (chatId) => {
         const [latest] = await db
           .select({
-            content: messages.content
+            content: messages.content,
           })
           .from(messages)
           .where(eq(messages.chatId, chatId))

@@ -1,119 +1,121 @@
-import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { db } from "../../config/db.js";
+import { db } from "../config/db.js";
 import { users } from "../models/userModel.js";
 import { eq } from "drizzle-orm";
 import status from "http-status";
+import { loginValidator, signupValidator } from "../utils/validation.js";
+import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
+import getJWT from "../utils/getJwt.js";
 
-dotenv.config();
-
-export const registerUser = async (req, res, next) => {
+export const signup = async (req, res) => {
   try {
-    const userInfo = req.body;
-    if (!process.env.JWT_SECRET) {
-      throw new Error(
-        "JWT_SECRET is not defined in the environment variables."
-      );
-    }
+    //validate the req body
+    signupValidator(req);
 
-    //prepare the data to be inserted into the database:
+    const userData = req.body;
+
     //1. encrypt the password
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(userInfo.password, salt);
+    const hashedPassword = await bcrypt.hash(userData.password, salt);
 
-    userInfo.password = hashedPassword;
+    userData.password = hashedPassword;
 
     //2. insert into the db with returning
-    let response;
-    try {
-      response = await db.insert(users).values(userInfo).returning({
-        id: users.id,
-        name: users.name,
-        username: users.username,
-        gender: users.gender,
-        lastSeen: users.lastSeen,
-        updatedAt: users.updatedAt,
-        createdAt: users.createdAt,
-      });
-    } catch (dbError) {
-      if (dbError.code === "23505") { // Assuming PostgreSQL unique violation error code
-        return res.status(status.CONFLICT).json({
-          status: status.CONFLICT,
-          error: "User already exists",
-        });
-      }
-      throw dbError; // Re-throw other errors to be handled by the outer catch block
-    }
+    const user = await db.insert(users).values(userData).returning();
+    const response = user.map(({ password, ...rest }) => rest);
 
     //3. Generate JWT token and send to the client
-    const payload = { id: response[0].id, username: response[0].username };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRATION || "2h",
-    });
+    const payload = { id: response[0].id };
+    const token = getJWT(payload);
 
     //4. Send response
-    res.status(status.CREATED).json({
-      status: status.CREATED,
-      message: "New user created successfully",
-      data: { ...response[0] },
-      token: token,
-    });
+    res
+      .cookie("token", token, { expires: new Date(Date.now() + 2 * 3600000) })
+      .status(status.CREATED)
+      .json(
+        getSuccessResponse(
+          status.CREATED,
+          `Signed up as ${response[0].name}`,
+          response
+        )
+      );
   } catch (error) {
     console.error("Error in registerUser:", error);
+    if (error.code == 23505) {
+      error.message = "User already exists";
+    }
     res
-      .status(status.INTERNAL_SERVER_ERROR)
-      .json({ message: "An internal server error occurred." });
-    next(error);
+      .status(status.BAD_REQUEST)
+      .json(getErrorResponse(status.BAD_REQUEST, error.message));
   }
 };
 
-export const loginUser = async (req, res, next) => {
+export const loginUser = async (req, res) => {
   try {
+    //validate the req body:
+    loginValidator(req);
+
+    //extract username and password
     const { username, password } = req.body;
 
+    //fetch user from DB:
     const user = await db
       .select()
       .from(users)
-      .where(eq(users.username, username))
+      .where(eq(users.username, username));
 
     if (user.length === 0) {
-      return res.status(status.UNAUTHORIZED).json({
-      status: status.UNAUTHORIZED,
-      error: "Invalid credentials",
-      });
+      return res
+        .status(status.UNAUTHORIZED)
+        .json(
+          getErrorResponse(
+            status.UNAUTHORIZED,
+            "Either username or password is incorrect"
+          )
+        );
     }
 
+    //check if the password matches
     const isMatch = await bcrypt.compare(password, user[0].password);
 
     if (!isMatch) {
-      return res.status(status.UNAUTHORIZED).json({
-        status: status.UNAUTHORIZED,
-        error: "Invalid password",
-        });
+      return res
+        .status(status.UNAUTHORIZED)
+        .json(
+          getErrorResponse(
+            status.UNAUTHORIZED,
+            "Either username or password is incorrect"
+          )
+        );
     }
 
-    const payload = { id: user[0].id, username: user[0].username };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRATION || "2h",
-    });
+    //sanitizing the user :D
+    const response = user.map(({ password, ...rest }) => rest);
 
-    //sanitizing the user :D                          
-    const sanitizedUser = (({ password, ...rest }) => rest)(user[0]);
-    //Note to myself: the above line of code is called IIFE (Immediately Invoked Function) here it is written in the form of an arrow function. 
-    //it takes an object as the input and then takes out password field from it and destructures rest of object into a new object and returns it. 
+    const payload = { id: user[0].id };
+    const token = getJWT(payload);
 
-    return res.status(status.OK).json({
-      status: status.OK,
-      message: "User details",
-      data: sanitizedUser,
-      token: token,
-    });
+    return res
+      .cookie("token", token, { expires: new Date(Date.now() + 2 * 3600000) })
+      .status(status.OK)
+      .json(
+        getSuccessResponse(
+          status.OK,
+          `Logged-in as ${response[0].name}`,
+          response
+        )
+      );
   } catch (error) {
     console.error("Error in loginUser:", error);
     res
       .status(status.INTERNAL_SERVER_ERROR)
-      .json({ message: "An internal server error occurred." });
-    next(error);
+      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, error.message));
   }
+};
+
+export const logout = async (req, res) => {
+  res
+    .cookie("token", null, { expires: new Date(Date.now()) })
+    .status(status.OK)
+    .json(getSuccessResponse(status.OK, "Successfully logged out"));
 };

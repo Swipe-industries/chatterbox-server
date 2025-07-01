@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+dotenv.config();
 import { createServer } from "http";
 import { Server } from "socket.io";
 import express from "express";
@@ -11,28 +12,23 @@ import chatRoutes from "./routes/chatRoutes.js";
 import { errorHandler } from "./middlewares/errors.js";
 import { parseJson } from "./middlewares/jsonParser.js";
 import { v4 as uuidv4 } from "uuid";
-import { db } from "../config/db.js";
+import { db } from "./config/db.js";
 import { users } from "./models/userModel.js";
 import { eq } from "drizzle-orm";
-import { addMessage } from "./controllers/messageController.js";
-
-dotenv.config();
 
 const app = express();
 
-// Middleware
+// Middlewares
 app.use(cors());
 app.use(parseJson); //ignoring the GET req for optimization
 app.use(morgan(":method   :url    :status     :response-time ms")); //comment it out or remove when putting code in production
 
 // Routes
-app.get("/", (_, res) => {
-  res.send({ message: "hello from home route" });
-});
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/chats", chatRoutes);
-app.use("/api/messages", messageRoutes);
+app.get("/", (_, res) => res.send({ message: "hello from home route" }));
+app.use("/api", authRoutes);
+app.use("/api", userRoutes);
+app.use("/api", chatRoutes);
+app.use("/api", messageRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
