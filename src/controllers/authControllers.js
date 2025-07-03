@@ -25,7 +25,7 @@ export const signup = async (req, res) => {
     const response = user.map(({ password, ...rest }) => rest);
 
     //3. Generate JWT token and send to the client
-    const payload = { id: response[0].id };
+    const payload = { userId: response[0].id };
     const token = getJWT(payload);
 
     //4. Send response
@@ -92,7 +92,7 @@ export const loginUser = async (req, res) => {
     //sanitizing the user :D
     const response = user.map(({ password, ...rest }) => rest);
 
-    const payload = { id: user[0].id };
+    const payload = { userId: user[0].id };
     const token = getJWT(payload);
 
     return res

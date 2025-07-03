@@ -4,8 +4,8 @@ import { authMiddleware } from "../middlewares/auth.js";
 
 const router = express.Router();
 
-router.post("/chats/create", createChat)
-router.get("/chats/all", authMiddleware, userChats)
-router.get("/chats/find/:user1Id/:user2Id", findChat)
+router.get("/chat/user", authMiddleware, userChats)
+router.post("/chat/create", authMiddleware, createChat)
+router.get("/chat/find/:user1Id/:user2Id", authMiddleware, findChat)
 
 export default router

@@ -1,21 +1,90 @@
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { chats } from "../models/chatModel.js";
 import { db } from "../config/db.js";
 import status from "http-status";
+import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
+import { newChatValidator } from "../utils/validation.js";
 import { users } from "../models/userModel.js";
-import { messages } from "../models/messageModel.js";
-import { eq } from "drizzle-orm";
+
+export const userChats = async (req, res) => {
+  try {
+    const loggedInUserId = req.user.userId;
+
+    const response = await db.execute(
+      sql`
+      SELECT 
+      c.id AS "chatId",
+      u.name,
+      u.gender,
+      m.content AS "lastMessage",
+      m.message_type AS "lastMessageType",
+      m.created_at AS "messageTime",
+      COALESCE(unread.count, 0) AS "unreadCount"
+      FROM chats c
+      JOIN users u ON (u.id = CASE WHEN c.user1_id = ${loggedInUserId} THEN c.user2_id ELSE c.user1_id END)
+      LEFT JOIN LATERAL (
+      SELECT *
+      FROM messages m
+      WHERE m.chat_id = c.id
+      ORDER BY m.created_at DESC
+      LIMIT 1
+      ) m ON true
+      LEFT JOIN LATERAL (
+      SELECT count(*) as count
+      FROM messages m2
+      WHERE m2.chat_id = c.id AND m2.is_read = false AND m2.sender_id != ${loggedInUserId}
+      ) unread ON true
+      WHERE c.user1_id = ${loggedInUserId} OR c.user2_id = ${loggedInUserId}
+      ORDER BY m.created_at DESC;
+    `,
+      {
+        loggedInUserId,
+      }
+    );
+
+    if (response.rowCount === 0) {
+      return res
+        .status(status.NOT_FOUND)
+        .json(getErrorResponse(status.NOT_FOUND, "No chats found!"));
+    }
+
+    return res
+      .status(status.OK)
+      .json(
+        getSuccessResponse(
+          status.OK,
+          "Chats retrieved successfully",
+          response.rows
+        )
+      );
+  } catch (error) {
+    console.error("Error retrieving user chats:", error);
+    return res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR));
+  }
+};
 
 export const createChat = async (req, res) => {
   try {
-    const { user1Id, user2Id } = req.body;
+    const senderId = req.user.userId;
+    newChatValidator(req);
 
-    // Validate input
-    if (!user1Id || !user2Id) {
-      return res.status(status.BAD_REQUEST).json({
-        status: status.BAD_REQUEST,
-        message: "Both user1Id and user2Id are required",
-      });
+    const { receiverId } = req.body;
+
+    //prevent self-chat:
+    if (senderId === receiverId) {
+      throw new Error("Cannot create chat with yourself!");
+    }
+
+    //check if reveriver exists in DB:
+    const reveriver = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, receiverId));
+
+    if (reveriver.length === 0) {
+      throw new Error("Receiver not found with given Id");
     }
 
     // Check if the chat already exists
@@ -23,135 +92,39 @@ export const createChat = async (req, res) => {
       .select()
       .from(chats)
       .where(
-        sql`${chats.user1Id} = ${user1Id} AND ${chats.user2Id} = ${user2Id}`
+        and(
+          or(eq(chats.user1Id, senderId), eq(chats.user1Id, receiverId)),
+          or(eq(chats.user2Id, senderId), eq(chats.user2Id, receiverId))
+        )
       );
 
     if (existingChat.length > 0) {
-      return res.status(status.CONFLICT).json({
-        status: status.CONFLICT,
-        message: "Chat already exists",
-        data: existingChat[0],
-      });
+      return res.status(status.CONFLICT).json(
+        getSuccessResponse(status.CONFLICT, "Chat already exists", {
+          chatId: existingChat[0].id,
+        })
+      );
     }
 
     // Create a new chat
-    const [newChat] = await db
+    const newChat = await db
       .insert(chats)
-      .values({ user1Id, user2Id })
+      .values({ user1Id: senderId, user2Id: receiverId })
       .returning();
 
-    return res.status(status.CREATED).json({
-      status: status.CREATED,
-      message: "Chat created successfully",
-      data: newChat,
-    });
-  } catch (error) {
-    console.error("Error creating chat:", error);
-    return res.status(status.INTERNAL_SERVER_ERROR).json({
-      status: status.INTERNAL_SERVER_ERROR,
-      message: "An error occurred while creating the chat",
-    });
-  }
-};
-
-export const userChats = async (req, res) => {
-  try {
-    const loggedInUserId = req.user.id;
-
-    // Step 1: Fetch all the chats where the user is a participant
-    const userChatsData = await db
-      .select()
-      .from(chats)
-      .where(
-        sql`${chats.user1Id} = ${loggedInUserId} OR ${chats.user2Id} = ${loggedInUserId}`
+    return res
+      .status(status.CREATED)
+      .json(
+        getSuccessResponse(
+          status.CREATED,
+          "New chat created successfully",
+          newChat
+        )
       );
-
-    // Handle case where no chats are found
-    if (!userChatsData || userChatsData.length === 0) {
-      return res.status(status.NOT_FOUND).json({
-        status: status.NOT_FOUND,
-        message: "No chats found!",
-      });
-    }
-
-    const chatIds = userChatsData.map((chat) => chat.id);
-    const receiverIds = userChatsData.map((chat) =>
-      chat.user1Id === loggedInUserId ? chat.user2Id : chat.user1Id
-    );
-
-    // Step 2: Fetch reveiver's details in one go
-    const reveivers = await db
-      .select()
-      .from(users)
-      .where(inArray(users.id, receiverIds));
-
-    const userMap = new Map(reveivers.map((user) => [user.id, user]));
-
-    // Step 3: Fetch latest messages per chat (1 per chat)
-    const latestMessages = await Promise.all(
-      chatIds.map(async (chatId) => {
-        const [latest] = await db
-          .select({
-            content: messages.content,
-          })
-          .from(messages)
-          .where(eq(messages.chatId, chatId))
-          .orderBy(messages.createdAt, "desc")
-          .limit(1);
-        return { ...latest, chatId };
-      })
-    );
-
-    const latestMessageMap = new Map(
-      latestMessages.map((msg) => [msg.chatId, msg])
-    );
-
-    // Step 4: Fetch unread message counts per chat
-    const unreadCounts = await Promise.all(
-      chatIds.map(async (chatId) => {
-        const result = await db.execute(
-          sql`SELECT COUNT(*)::int AS count FROM ${messages} WHERE ${messages.chatId} = ${chatId} AND ${messages.isRead} = false`
-        );
-        const count = result.rows?.[0]?.count || 0;
-        return { chatId, count };
-      })
-    );
-
-    const unreadCountMap = new Map(
-      unreadCounts.map((entry) => [entry.chatId, entry.count])
-    );
-
-    // Step 5: Build final chat list
-    const chatDetails = userChatsData.map((chat) => {
-      const participantId =
-        chat.user1Id === loggedInUserId ? chat.user2Id : chat.user1Id;
-
-      const user = userMap.get(participantId);
-      const lastMessage = latestMessageMap.get(chat.id);
-      const unreadCount = unreadCountMap.get(chat.id) || 0;
-
-      return {
-        chatId: chat.id,
-        userId: user?.id || null,
-        name: user?.name || "Unknown",
-        gender: user?.gender || "Unknown",
-        lastMessage: lastMessage?.content || "",
-        updatedAt: lastMessage?.createdAt || chat.createdAt,
-        unreadCount,
-      };
-    });
-
-    return res.status(status.OK).json({
-      status: status.OK,
-      message: "Chats retrieved successfully",
-      chats: chatDetails,
-    });
-  } catch (error) {
-    console.error("Error retrieving user chats:", error);
-    return res.status(status.INTERNAL_SERVER_ERROR).json({
-      status: status.INTERNAL_SERVER_ERROR,
-      message: "An error occurred while retrieving user chats",
-    });
+  } catch (err) {
+    return res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
   }
 };
 

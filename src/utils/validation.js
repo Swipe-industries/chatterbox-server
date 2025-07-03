@@ -1,5 +1,21 @@
 import validator from "validator";
 
+const passwordValidator = (req) => {
+  const ALLOWED_VALUES = ["username", "password"];
+  const data = req.body;
+
+  const areFieldsValid = Object.keys(data).every((key) => ALLOWED_VALUES.includes(key));
+
+  if(!areFieldsValid){
+    throw new Error("Invalid request!");
+  }
+
+  if(!validator.isStrongPassword(data.password)){
+    throw new Error("Password is weak");
+  }
+  
+}
+
 const loginValidator = (req) => {
   const ALLOWED_VALUES = ["username", "password"];
   const data = req.body;
@@ -63,4 +79,22 @@ const signupValidator = (req) => {
   }
 };
 
-export { loginValidator, signupValidator };
+const newChatValidator = (req) => {
+  const ALLOWED_VALUES = ["receiverId"];
+
+  const data = req.body;
+
+  const areFieldsValid = Object.keys(data).every((key) => ALLOWED_VALUES.includes(key));
+
+  if(!areFieldsValid){
+    throw new Error("Invalid Request!");
+  }
+
+  if(!(validator.isUUID(data.receiverId))){
+    throw new Error("Invalid receiverId");
+  }
+
+
+}
+
+export { loginValidator, signupValidator, newChatValidator, passwordValidator };

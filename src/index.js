@@ -3,6 +3,7 @@ dotenv.config();
 import { createServer } from "http";
 import { Server } from "socket.io";
 import express from "express";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import morgan from "morgan";
 import authRoutes from "./routes/authRoutes.js";
@@ -10,7 +11,6 @@ import messageRoutes from "./routes/messageRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import { errorHandler } from "./middlewares/errors.js";
-import { parseJson } from "./middlewares/jsonParser.js";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "./config/db.js";
 import { users } from "./models/userModel.js";
@@ -20,7 +20,8 @@ const app = express();
 
 // Middlewares
 app.use(cors());
-app.use(parseJson); //ignoring the GET req for optimization
+app.use(express.json());
+app.use(cookieParser())
 app.use(morgan(":method   :url    :status     :response-time ms")); //comment it out or remove when putting code in production
 
 // Routes

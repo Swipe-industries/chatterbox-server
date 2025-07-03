@@ -1,28 +1,28 @@
 import status from "http-status";
 import jwt from "jsonwebtoken";
+import { getErrorResponse } from "../utils/response.js";
+import validator from "validator";
 
 export const authMiddleware = (req, res, next) => {
-  const token = req.header("Authorization")?.replace("Bearer ", "");
-  if (!token) {
-    const response = {
-      status: status.UNAUTHORIZED,
-      error: "No token, authorization denied",
-    };
-    return res.status(status.UNAUTHORIZED).json(response);
-  }
   try {
+    const { token } = req.cookies;
+
+    if(!token){
+      throw new Error("No token, please log in again")
+    }
+    
+    if (!validator.isJWT(token)) {
+      throw new Error("Invalid Token!");
+    }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {
-      return res.status(status.UNAUTHORIZED).json({
-        status: status.UNAUTHORIZED,
-        error: "Session expired, please log in again",
-      });
+      err.message = "Session expired, please log in again";
     }
     res
       .status(status.UNAUTHORIZED)
-      .json({ status: status.UNAUTHORIZED, error: "Invalid Token!" });
+      .json(getErrorResponse(status.UNAUTHORIZED, err.message));
   }
 };
