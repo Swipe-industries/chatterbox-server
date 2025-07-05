@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config();
 import { createServer } from "http";
-import { Server } from "socket.io";
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -11,10 +10,7 @@ import messageRoutes from "./routes/messageRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import { errorHandler } from "./middlewares/errors.js";
-import { v4 as uuidv4 } from "uuid";
-import { db } from "./config/db.js";
-import { users } from "./models/userModel.js";
-import { eq } from "drizzle-orm";
+import initSocket from "./socket/index.js";
 
 const app = express();
 
@@ -34,108 +30,12 @@ app.use("/api", messageRoutes);
 // Error handling middleware
 app.use(errorHandler);
 
-const server = createServer(app);
+//creating server using http module (socket.io demands it)
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 8080;
 
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-});
+initSocket(httpServer);
 
-let activeUsers = [];
-
-io.on("connection", (socket) => {
-  //add a new user to socket server
-  socket.on("add-new-user", (newUserId) => {
-    if (!activeUsers.some((user) => user.userId === newUserId)) {
-      activeUsers.push({
-        userId: newUserId,
-        socketId: socket.id,
-      });
-    }
-    io.emit("get-users", activeUsers);
-  });
-
-  // Handle sending and receiving messages
-  socket.on("send-message", (data) => {
-    const { receiverId, chatId, senderId, message, messageType } = data;
-    const fullMessage = {
-      id: uuidv4(),
-      chatId,
-      senderId,
-      content: message,
-      messageType: "text",
-      createdAt: new Date().toISOString(),
-      isRead: false,
-    };
-
-    //save to database here:
-    // addMessage();
-
-    //emit message:
-    const receiverSocket = activeUsers.find((u) => u.userId === receiverId);
-    const senderSocket = activeUsers.find((u) => u.userId === senderId);
-
-    // Send to receiver
-    if (receiverSocket) {
-      io.to(receiverSocket.socketId).emit("receive-message", fullMessage);
-    }
-
-    // Send to sender (so that even sender sees it in UI instantly)
-    if (senderSocket) {
-      io.to(senderSocket.socketId).emit("receive-message", fullMessage);
-    }
-  });
-
-  socket.on("user-typing", ({ userId, receiverId }) => {
-    const user = activeUsers.find((user) => user.userId === userId);
-    if (user) {
-      user.isTyping = true;
-      io.to(
-        activeUsers.find((user) => user.userId === receiverId)?.socketId
-      ).emit("user-typing", userId);
-    }
-  });
-
-  socket.on("user-stop-typing", ({ userId, receiverId }) => {
-    const user = activeUsers.find((user) => user.userId === userId);
-    if (user) {
-      user.isTyping = false;
-      io.to(
-        activeUsers.find((user) => user.userId === receiverId)?.socketId
-      ).emit("user-stop-typing", userId);
-    }
-  });
-
-  socket.on("disconnect", async () => {
-    //Finding the disconnected user:
-    const disconnectedUser = activeUsers.find(
-      (user) => user.socketId === socket.id
-    );
-
-    //Removing the user from the list of active users:
-    activeUsers = activeUsers.filter((user) => user.socketId !== socket.id);
-
-    // emitting to all:
-    io.emit("get-users", activeUsers);
-
-    //Updating the database:
-    if (disconnectedUser) {
-      try {
-        await db
-          .update(users)
-          .set({ lastSeen: new Date() })
-          .where(eq(users.id, disconnectedUser.userId));
-      } catch (error) {
-        console.error("Error updating lastSeen: ", error);
-      }
-    }
-  });
-});
-
-server.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server is running on port http://localhost:${PORT}`);
 });
