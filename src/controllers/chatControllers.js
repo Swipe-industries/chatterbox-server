@@ -3,7 +3,6 @@ import { chats } from "../models/chatModel.js";
 import { db } from "../config/db.js";
 import status from "http-status";
 import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
-import { newChatValidator } from "../utils/validation.js";
 import { users } from "../models/userModel.js";
 import validator from "validator";
 
@@ -43,12 +42,6 @@ export const userChats = async (req, res) => {
         loggedInUserId,
       }
     );
-
-    if (response.rowCount === 0) {
-      return res
-        .status(status.NOT_FOUND)
-        .json(getErrorResponse(status.NOT_FOUND, "No chats found!"));
-    }
 
     return res
       .status(status.OK)
