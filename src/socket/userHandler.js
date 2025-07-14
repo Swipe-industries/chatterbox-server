@@ -1,34 +1,43 @@
-export const addUser = ({ io, socket, activeUsers }) => {
-  return async (payload, callback) => {
-    if (typeof callback !== "function") {
-      return;
-    }
-    
-    //validate that no payload is provided for this event:
-    if (!Object.keys(payload).length == 0) {
-      return callback({
-        status: "INTERNAL_SERVER_ERROR ",
-        message: "Invalid payload",
-      });
-    }
+import { db } from "../config/db.js";
+import { users } from "../models/userModel.js";
+import { sql, eq } from "drizzle-orm";
+import { getSuccessResponse } from "../utils/response.js";
 
-    if (!activeUsers.some((user) => user.userId === socket.userId)) {
-      activeUsers.push({
-        userId: socket.userId,
-        socketId: socket.id,
-      });
-    }
+export const updateLastSeen = async ({ io, socket, activeUsers }) => {
+  try {
+    await db
+      .update(users)
+      .set({ lastSeen: sql`NOW()` })
+      .where(eq(users.id, socket.userId));
+  } catch (err) {
+    console.error("Error in updating lastSeen: ", err);
+  }
+  io.emit(
+    "users:active",
+    getSuccessResponse("OK", "Updated active users", activeUsers)
+  );
+};
 
-    //broadcast to all connected users that user is online:
-    io.emit("user:active", {
-      message: "List of active users",
-      data: activeUsers,
-    });
-    
-    callback({
-      status: "OK",
-      message: "List of active users",
-      data: activeUsers,
-    });
+export const handleUserTyping = ({ io, socket, activeUsers }) => {
+  return async (payload) => {
+    const senderId = socket.userId;
+    const receiverId = payload.receiverId;
+
+    const receiver = activeUsers.find((user) => user.userId === receiverId);
+    if (receiver) {
+      io.to(receiver.socketId).emit("user:typing", getSuccessResponse("OK", "User is typing", {userId: senderId}));
+    }
+  };
+};
+
+export const handleUserNotTyping = ({ io, socket, activeUsers }) => {
+  return async (payload) => {
+    const senderId = socket.userId;
+    const receiverId = payload.receiverId;
+
+    const receiver = activeUsers.find((user) => user.userId === receiverId);
+    if (receiver) {
+      io.to(receiver.socketId).emit("user:notTyping", getSuccessResponse("OK", "User stopped typing", {userId: senderId}));
+    }
   };
 };

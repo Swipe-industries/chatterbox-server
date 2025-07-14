@@ -1,10 +1,11 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import { chats } from "../models/chatModel.js";
 import { db } from "../config/db.js";
 import status from "http-status";
 import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
 import { newChatValidator } from "../utils/validation.js";
 import { users } from "../models/userModel.js";
+import validator from "validator";
 
 export const userChats = async (req, res) => {
   try {
@@ -14,6 +15,7 @@ export const userChats = async (req, res) => {
       sql`
       SELECT 
       c.id AS "chatId",
+      u.id AS "userId",
       u.name,
       u.gender,
       m.content AS "lastMessage",
@@ -65,16 +67,73 @@ export const userChats = async (req, res) => {
   }
 };
 
-export const createChat = async (req, res) => {
+export const getNewUsers = async (req, res) => {
+  try {
+    const loggedInUserId = req.user.userId;
+    //not taking care of pagination for now. will do that later on
+    // const { limit = 10, cursor } = req.query;
+
+    // //validating the limit:
+    // if (Number(limit) > 10) {
+    //   throw new Error("Invalid limit");
+    // }
+    // if (cursor && !validator.isISO8601(cursor)) {
+    //   throw new Error("Invalid cursor format");
+    // }
+
+    // const conditions = [];
+    // if(cursor){
+    //   const dateCursor = new Date(cursor);
+    //   if(NaN(dateCursor)){
+    //     throw new Error("Invalid cursor date");
+    //   }
+    //   conditions.push(lt(users.createdAt, dateCursor));
+    // }
+
+    //fetching users from user table:
+    const response = await db
+      .select({
+        userId: users.id,
+        name: users.name,
+        username: users.username,
+        gender: users.gender,
+        lastSeen: users.lastSeen,
+        updatedAt: users.updatedAt,
+        createdAt: users.createdAt,
+        deletedAt: users.deletedAt,
+      })
+      .from(users);
+
+    //removing self from the response:
+    const usersData = response.filter((user) => user.userId !== loggedInUserId);
+    res
+      .status(status.OK)
+      .json(
+        getSuccessResponse(
+          status.OK,
+          "Available users on ChatterBox",
+          usersData
+        )
+      );
+  } catch (err) {
+    return res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
+  }
+};
+
+export const findChatId = async (req, res) => {
   try {
     const senderId = req.user.userId;
-    newChatValidator(req);
+    const receiverId = req.params.receiverId;
 
-    const { receiverId } = req.body;
+    if (!validator.isUUID(receiverId)) {
+      throw new Error("Invalid receiverId");
+    }
 
     //prevent self-chat:
     if (senderId === receiverId) {
-      throw new Error("Cannot create chat with yourself!");
+      throw new Error("Chats with self are not allowed");
     }
 
     //check if reveriver exists in DB:
@@ -99,61 +158,27 @@ export const createChat = async (req, res) => {
       );
 
     if (existingChat.length > 0) {
-      return res.status(status.CONFLICT).json(
-        getSuccessResponse(status.CONFLICT, "Chat already exists", {
+      return res.status(status.OK).json(
+        getSuccessResponse(status.OK, "Chat already exists", {
+          existingChat: true,
           chatId: existingChat[0].id,
         })
       );
+    } else {
+      return res
+        .status(status.OK)
+        .json(
+          getSuccessResponse(
+            status.OK,
+            "Chat not found, create on on new message!", {
+              existingChat: false
+            }
+          )
+        );
     }
-
-    // Create a new chat
-    const newChat = await db
-      .insert(chats)
-      .values({ user1Id: senderId, user2Id: receiverId })
-      .returning();
-
-    return res
-      .status(status.CREATED)
-      .json(
-        getSuccessResponse(
-          status.CREATED,
-          "New chat created successfully",
-          newChat
-        )
-      );
   } catch (err) {
     return res
       .status(status.INTERNAL_SERVER_ERROR)
       .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
-  }
-};
-
-export const findChat = async (req, res) => {
-  try {
-    const user1Id = req.params.user1Id;
-    const user2Id = req.params.user2Id;
-
-    // Validate that both user1Id and user2Id are provided
-    if (!user1Id || !user2Id) {
-      return res.status(400).json("Both user1Id and user2Id are required");
-    }
-
-    // Query the database to find the chat between user1Id and user2Id
-    const userChat = await db
-      .select()
-      .from(chats)
-      .where(
-        sql`${chats.user1Id} IN (${user1Id}, ${user2Id}) 
-          OR ${chats.user2Id} IN (${user1Id}, ${user2Id})`
-      );
-
-    //handling if no chats found then based on response the client can be programed to create a new chat
-    if (userChat.length === 0) return res.status(400).json("No chats found");
-
-    // Send the result back as a JSON response
-    return res.status(200).json(userChat);
-  } catch (error) {
-    console.log(error);
-    return res.status(500).json(error);
   }
 };

@@ -1,11 +1,22 @@
 import { db } from "../config/db.js";
 import { users } from "../models/userModel.js";
-import { eq, sql } from "drizzle-orm";
+import { eq, ilike, sql } from "drizzle-orm";
 import status from "http-status";
 import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
 import { passwordValidator } from "../utils/validation.js";
 import bcrypt from "bcryptjs";
 import validator from "validator";
+
+const USER_SAFE_DATA = {
+  id: users.id,
+  name: users.name,
+  username: users.username,
+  gender: users.gender,
+  lastSeen: users.lastSeen,
+  updatedAt: users.updatedAt,
+  createdAt: users.createdAt,
+  deletedAt: users.deletedAt,
+};
 
 export const resetPassword = async (req, res) => {
   try {
@@ -32,33 +43,6 @@ export const resetPassword = async (req, res) => {
       .status(status.OK)
       .json(getSuccessResponse(status.OK, "Password updated successfully"));
   } catch (err) {
-    console.error("Error reseting password" + err);
-    return res
-      .status(status.INTERNAL_SERVER_ERROR)
-      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
-  }
-};
-
-export const updateLastSeen = async (req, res) => {
-  try {
-    //get the loggedInUser:
-    const loggedInUserId = req.user.userId;
-
-    //update the db: (as this api will be called when user goes offline so no neet to take date string from user just update it to current time)
-    const response = await db
-      .update(users)
-      .set({ lastSeen: sql`NOW()` })
-      .where(eq(users.id, loggedInUserId));
-
-    if (response.rowCount === 0) {
-      throw new Error("Failed to update lastSeen");
-    }
-
-    return res
-      .status(status.OK)
-      .json(getSuccessResponse(status.OK, "lastSeen updated successfully"));
-  } catch (err) {
-    console.error("Error updating last seen: " + err);
     return res
       .status(status.INTERNAL_SERVER_ERROR)
       .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
@@ -87,7 +71,6 @@ export const getLastSeen = async (req, res) => {
       .status(status.OK)
       .json(getSuccessResponse(status.OK, "lastSeen of the user", response));
   } catch (err) {
-    console.error("Error fetching lastSeen: " + err);
     return res
       .status(status.INTERNAL_SERVER_ERROR)
       .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
@@ -122,7 +105,6 @@ export const checkUsername = async (req, res) => {
         )
       );
   } catch (err) {
-    console.error(err);
     return res
       .status(status.INTERNAL_SERVER_ERROR)
       .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
@@ -130,6 +112,7 @@ export const checkUsername = async (req, res) => {
 };
 
 export const searchUser = async (req, res) => {
+  const loggedInUserId = req.user.userId;
   const ALLOWED_PARAMS = ["username"];
   try {
     const queryParams = req.query;
@@ -147,24 +130,34 @@ export const searchUser = async (req, res) => {
       throw new Error("username is missing in query");
     }
 
-    const response = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, queryParams.username));
-
-    if (response.length === 0) {
-      throw new Error("No user found");
+    const searchTerm = queryParams.username.trim();
+    if (!searchTerm) {
+      throw new Error("username cannot be empty");
     }
 
-    const user = response.map(({ password, ...rest }) => rest);
+    const response = await db
+      .select(USER_SAFE_DATA)
+      .from(users)
+      .where(ilike(users.username, `%${searchTerm}%`));
 
+    if (response.length === 0) {
+      return res
+        .status(status.NOT_FOUND)
+        .json(getErrorResponse(status.NOT_FOUND, "No user found"));
+    }
+
+    // removing self:
+    const usersData = response.filter((user) => user.id !== loggedInUserId);
     return res
-      .status(status.FOUND)
+      .status(status.OK)
       .json(
-        getSuccessResponse(status.FOUND, `${queryParams.username} found!`, user)
+        getSuccessResponse(
+          status.OK,
+          `${searchTerm} found!`,
+          usersData
+        )
       );
   } catch (err) {
-    console.error("Error in searchUser:", err);
     return res
       .status(status.INTERNAL_SERVER_ERROR)
       .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));

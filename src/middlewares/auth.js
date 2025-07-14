@@ -9,7 +9,7 @@ export const authMiddleware = (req, res, next) => {
     const { token } = req.cookies;
 
     if (!token) {
-      throw new Error("No token, please log in again");
+      throw new Error("Session expired, please log in again");
     }
 
     if (!validator.isJWT(token)) {
@@ -33,18 +33,19 @@ export const socketAuth = (socket, next) => {
     const cookieHeader = socket.handshake.headers.cookie;
 
     if (!cookieHeader) {
-      next(new Error("No cookies sent, please log in again"));
+      return next(new Error("No cookies sent, please log in again"));
     }
 
     const cookies = cookie.parse(cookieHeader);
+    
     const token = cookies.token;
 
     if (!token) {
-      next(new Error("No token in cookies, please log in again"));
+      return next(new Error("No token in cookies, please log in again"));
     }
 
     if (!validator.isJWT(token)) {
-      next(new Error("Invalid token!"));
+      return next(new Error("Invalid token!"));
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

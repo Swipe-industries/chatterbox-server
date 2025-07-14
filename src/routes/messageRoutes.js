@@ -1,12 +1,12 @@
 import express from "express";
-import { addMessage, getMessage} from "../controllers/messageController.js"
+import { getConversation, markMessagesRead} from "../controllers/messageController.js"
 import { authMiddleware } from "../middlewares/auth.js";
 
 
 const router = express.Router();
 
-router.post('/messages/add', addMessage);
-router.get('/messages/:chatId',authMiddleware, getMessage);
+router.get('/message/conversation/:chatId',authMiddleware, getConversation);
+router.patch('/message/isRead', authMiddleware, markMessagesRead);
 
 
 export default router;

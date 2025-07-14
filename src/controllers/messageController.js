@@ -1,40 +1,77 @@
 import { messages } from "../models/messageModel.js";
 import { db } from "../config/db.js";
-import { eq, asc } from "drizzle-orm";
+import { eq, and, lt, desc } from "drizzle-orm";
 import status from "http-status";
+import validator from "validator";
+import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
 
-export const addMessage = async (req, res) => {
+export const getConversation = async (req, res) => {
   try {
-    //saving the message in the table:
-    const messaggeData = await db.insert(messages).values(req.body).returning();
+    const chatId = req.params.chatId;
+    const { limit = 20, cursor } = req.query;
 
-    return res.status(200).json(messaggeData[0]);
-  } catch (error) {
-    console.log(error);
-    return res.status(500).json(error);
-  }
-};
+    //validation:
+    if (!validator.isUUID(chatId)) {
+      throw new Error("Invalid chatId");
+    }
+    if (Number(limit) > 30) {
+      throw new Error("Invalid limit");
+    }
+    if (cursor && !validator.isISO8601(cursor)) {
+      throw new Error("Invalid cursor format");
+    }
 
-export const getMessage = async (req, res) => {
-  const chatId = req.params.chatId;
-  const { limit = 20, cursor } = req.query;
+    //building conditional query
+    const conditions = [eq(messages.chatId, chatId)];
+    if (cursor) {
+      const dateCursor = new Date(cursor);
+      if (isNaN(dateCursor)) {
+        throw new Error("Invalid cursor date");
+      }
+      conditions.push(lt(messages.createdAt, dateCursor));
+    }
 
-  try {
     //retrieving all the messages based on chatId
     const allMessages = await db
       .select()
       .from(messages)
-      .where(eq(messages.chatId, chatId))
-      .orderBy(asc(messages.createdAt))
+      .where(and(...conditions))
+      .orderBy(desc(messages.createdAt))
       .limit(Number(limit));
-      
-    return res.status(status.OK).json({
-      status: status.OK,
-      message: "All messages fetched",
-      data: allMessages
-    });
+
+    return res
+      .status(status.OK)
+      .json(getSuccessResponse(status.OK, "User conversation", allMessages));
   } catch (error) {
-    console.log(error);
-    return res.status(500).json(error);
+    return res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, error.message));
+  }
+};
+
+export const markMessagesRead = async (req, res) => {
+  try {
+    const { chatId } = req.body;
+
+    if (!validator.isUUID(chatId)) {
+      throw new Error("Invalid chatId");
+    }
+
+    const response = await db
+      .update(messages)
+      .set({ isRead: true })
+      .where(eq(messages.chatId, chatId));
+
+    return res
+      .status(status.OK)
+      .json(
+        getSuccessResponse(status.OK, "Marked messages as read", {
+          rowsUpdated: response.rowCount,
+        })
+      );
+  } catch (err) {
+    return res
+      .status(status.INTERNAL_SERVER_ERROR)
+      .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, err.message));
   }
 };

@@ -15,10 +15,13 @@ import initSocket from "./socket/index.js";
 const app = express();
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_URL || "http://localhost:3000",
+  credentials: true
+}));
 app.use(express.json());
 app.use(cookieParser())
-app.use(morgan(":method   :url    :status     :response-time ms")); //comment it out or remove when putting code in production
+app.use(morgan(":method   :url    :status     :response-time ms"));
 
 // Routes
 app.get("/", (_, res) => res.send({ message: "hello from home route" }));

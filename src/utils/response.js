@@ -2,7 +2,7 @@
 
 export const getSuccessResponse = (statusCode, message, data) => {
   return {
-    code: statusCode,
+    status: statusCode,
     message,
     data,
   };
@@ -10,7 +10,7 @@ export const getSuccessResponse = (statusCode, message, data) => {
 
 export const getErrorResponse = (statusCode, errorMessage = "An internal server error occurred.") => {
   return {
-    code: statusCode,
+    status: statusCode,
     error: errorMessage,
   };
 };

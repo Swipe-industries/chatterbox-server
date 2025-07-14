@@ -7,6 +7,17 @@ import { loginValidator, signupValidator } from "../utils/validation.js";
 import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
 import getJWT from "../utils/getJwt.js";
 
+const USER_SAFE_DATA = {
+  id: users.id,
+  name: users.name,
+  username: users.username,
+  gender: users.gender,
+  lastSeen: users.lastSeen,
+  updatedAt: users.updatedAt,
+  createdAt: users.createdAt,
+  deletedAt: users.deletedAt,
+};
+
 export const signup = async (req, res) => {
   try {
     //validate the req body
@@ -21,26 +32,32 @@ export const signup = async (req, res) => {
     userData.password = hashedPassword;
 
     //2. insert into the db with returning
-    const user = await db.insert(users).values(userData).returning();
-    const response = user.map(({ password, ...rest }) => rest);
+    const [response] = await db
+      .insert(users)
+      .values(userData)
+      .returning(USER_SAFE_DATA);
 
     //3. Generate JWT token and send to the client
-    const payload = { userId: response[0].id };
+    const payload = { userId: response.id };
     const token = getJWT(payload);
 
     //4. Send response
     res
-      .cookie("token", token, { expires: new Date(Date.now() + 2 * 3600000) })
+      .cookie("token", token, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax", // or "strict" if all on localhost
+        expires: new Date(Date.now() + 2 * 3600000),
+      })
       .status(status.CREATED)
       .json(
         getSuccessResponse(
           status.CREATED,
-          `Signed up as ${response[0].name}`,
+          `Signed up as ${response.name}`,
           response
         )
       );
   } catch (error) {
-    console.error("Error in registerUser:", error);
     if (error.code == 23505) {
       error.message = "User already exists";
     }
@@ -50,7 +67,7 @@ export const signup = async (req, res) => {
   }
 };
 
-export const loginUser = async (req, res) => {
+export const loginUser = async (req, res) => {  
   try {
     //validate the req body:
     loginValidator(req);
@@ -90,23 +107,21 @@ export const loginUser = async (req, res) => {
     }
 
     //sanitizing the user :D
-    const response = user.map(({ password, ...rest }) => rest);
+    const response = { ...user[0] };
+    delete response.password;
 
-    const payload = { userId: user[0].id };
+    const payload = { userId: response.id };
     const token = getJWT(payload);
 
     return res
-      .cookie("token", token, { expires: new Date(Date.now() + 2 * 3600000) })
+      .cookie("token", token, {
+        expires: new Date(Date.now() + 2 * 3600000),
+      })
       .status(status.OK)
       .json(
-        getSuccessResponse(
-          status.OK,
-          `Logged-in as ${response[0].name}`,
-          response
-        )
+        getSuccessResponse(status.OK, `Logged-in as ${response.name}`, response)
       );
   } catch (error) {
-    console.error("Error in loginUser:", error);
     res
       .status(status.INTERNAL_SERVER_ERROR)
       .json(getErrorResponse(status.INTERNAL_SERVER_ERROR, error.message));

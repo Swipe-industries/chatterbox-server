@@ -1,13 +1,13 @@
 import { db } from "../config/db.js";
+import { or, and, eq } from "drizzle-orm";
 import validator from "validator";
 import { getErrorResponse, getSuccessResponse } from "../utils/response.js";
 import { messages } from "../models/messageModel.js";
+import { chats } from "../models/chatModel.js";
 
 export const sendMessage = ({ io, socket, activeUsers }) => {
   return async (payload, callback) => {
-    if (typeof callback !== "function") {
-      return;
-    }
+    if (typeof callback !== "function") return;
 
     const ALLOWED_FIELDS = [
       "chatId",
@@ -16,46 +16,71 @@ export const sendMessage = ({ io, socket, activeUsers }) => {
       "isRead",
       "receiverId",
     ];
-    let isReceiverOnline = false;
+    const loggedInUserId = socket.userId;
 
     try {
-      //vaidate the payload
-      if (!Object.keys(payload).every((key) => ALLOWED_FIELDS.includes(key))) {
-        throw new Error("Invalid Payload");
+      // Validate payload keys
+      const keysValid = Object.keys(payload).every((key) =>
+        ALLOWED_FIELDS.includes(key)
+      );
+      if (!keysValid) throw new Error("Invalid payload fields");
+
+      if (!payload.content || !payload.receiverId) {
+        throw new Error("content and receiverId are required");
       }
 
-      if (!validator.isUUID(payload.chatId)) {
+      let chatId = payload.chatId;
+
+      if (chatId && !validator.isUUID(chatId)) {
         throw new Error("Invalid chatId");
       }
 
-      //checking if receiver is online or not
-      const receiver = activeUsers.filter(
+      // Check if receiver is online
+      const receiver = activeUsers.find(
         (user) => user.userId === payload.receiverId
       );
-      if (receiver.length > 0) {
-        isReceiverOnline = true;
+      const isReceiverOnline = !!receiver;
+
+      // If no chatId provided, find or create
+      if (!chatId) {
+        // Create new chat
+        const newChatRes = await db
+          .insert(chats)
+          .values({ user1Id: loggedInUserId, user2Id: payload.receiverId })
+          .returning({ id: chats.id });
+
+        if (newChatRes.length === 0)
+          throw new Error("Failed to create new chat");
+
+        chatId = newChatRes[0].id;
       }
 
-      const message = {
-        chatId: payload.chatId,
-        senderId: socket.userId,
+      // Create message payload
+      const messagePayload = {
+        chatId,
+        senderId: loggedInUserId,
         content: payload.content,
+        messageType: payload.messageType || "text",
         isRead: isReceiverOnline,
       };
 
-      const response = await db.insert(messages).values(message).returning();
+      const messageRes = await db
+        .insert(messages)
+        .values(messagePayload)
+        .returning();
 
-      //emit an event to the reveriver to let him fetch the message in real time: (if online)
-      if (isReceiverOnline) {
-        io.to(receiver[0].socketId).emit(
-            "message:receive",
-            getSuccessResponse("OK", "New message", response)
-          );
+      // Emit to receiver if online
+      if (isReceiverOnline && receiver.socketId) {
+        io.to(receiver.socketId).emit(
+          "message:receive",
+          getSuccessResponse("OK", "New message", messageRes)
+        );
       }
 
-      callback(getSuccessResponse("OK", "Message sent", response));
+      callback(getSuccessResponse("OK", "Message sent", messageRes));
     } catch (err) {
-      return callback(getErrorResponse("INTERNAL_SERVER_ERROR", err.message));
+      console.error("sendMessage error:", err);
+      callback(getErrorResponse("INTERNAL_SERVER_ERROR", err.message));
     }
   };
 };
