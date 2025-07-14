@@ -45,9 +45,9 @@ export const signup = async (req, res) => {
     res
       .cookie("token", token, {
         httpOnly: true,
-        secure: false,
-        sameSite: "lax", // or "strict" if all on localhost
-        expires: new Date(Date.now() + 2 * 3600000),
+        secure: true, 
+        sameSite: "none",
+        expires: new Date(Date.now() + 12 * 3600000),
       })
       .status(status.CREATED)
       .json(
@@ -67,7 +67,7 @@ export const signup = async (req, res) => {
   }
 };
 
-export const loginUser = async (req, res) => {  
+export const loginUser = async (req, res) => {
   try {
     //validate the req body:
     loginValidator(req);
@@ -115,7 +115,10 @@ export const loginUser = async (req, res) => {
 
     return res
       .cookie("token", token, {
-        expires: new Date(Date.now() + 2 * 3600000),
+        httpOnly: true,
+        secure: true, 
+        sameSite: "none",
+        expires: new Date(Date.now() + 12 * 3600000),
       })
       .status(status.OK)
       .json(
